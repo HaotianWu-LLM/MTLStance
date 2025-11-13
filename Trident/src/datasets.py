@@ -47,13 +47,13 @@ class VASTZeroFewShot(Dataset):
 
         tokenizer_google = AutoTokenizer.from_pretrained("bert-base-uncased")
 
-        tokenizer_tweet = AutoTokenizer.from_pretrained('vinai/bertweet-base')
+        tokenizer_tweet = AutoTokenizer.from_pretrained('bert-base-uncased')
 
         wiki_dict = pickle.load(open(f'{path}/wiki_dict.pkl', 'rb'))
-        wiki_summaries = df['new_topic'].map(wiki_dict).tolist()
+        wiki_summaries = df['new_topic'].map(wiki_dict).fillna('').astype(str).tolist()
 
         google_dict = pickle.load(open(f'{path}/google_dict.pkl', 'rb'))
-        google_summaries = df['new_topic'].map(google_dict).tolist()
+        google_summaries = df['new_topic'].map(google_dict).fillna('').astype(str).tolist()
 
         tweets_targets = [f'text: {x} target: {y}' for x, y in zip(tweets, topics)]
 
@@ -79,7 +79,7 @@ class VASTZeroFewShot(Dataset):
 
         input_ids_tweet = torch.tensor(encodings_tweet['input_ids'], dtype=torch.long)
         attention_mask_tweet = torch.tensor(encodings_tweet['attention_mask'], dtype=torch.long)
-        token_type_ids_tweet = torch.tensor(encodings_tweet['token_type_ids'], dtype=torch.long)
+        token_type_ids_tweet = torch.zeros_like(input_ids_tweet)
 
         stances = torch.tensor(stances, dtype=torch.long)
         target_label2id = {data: i for i, data in enumerate(target_label_list)}

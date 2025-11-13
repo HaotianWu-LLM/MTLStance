@@ -3,18 +3,18 @@ import socket
 
 if __name__ == '__main__':
     data = 'vast'
-    batch_size = 4
+    batch_size = 4  # Keep small for MoE memory efficiency
     epochs = 50
     patience = 10
-    lr = 2e-5
-    l2_reg = 5e-5
+    lr = 1e-5  # Lower lr for MoE stability
+    l2_reg = 1e-4  # Increased regularization for MoE
     shared_model = 'bert-base'
     wiki_model = 'bert-base'
     google_model = 'bert-base'
     tweet_model = 'bertweet'
     n_layers_freeze = 0
     n_layers_freeze_wiki = 0
-    gpu = '0'
+    gpu = '1'
     inference = 0
 
     if wiki_model == shared_model:
@@ -26,7 +26,7 @@ if __name__ == '__main__':
     if data != 'vast':
         file_name = f'results/{data}-lr={lr}-bs={batch_size}.txt'
     else:
-        file_name = f'results/{data}-lr={lr}-bs={batch_size}.txt'
+        file_name = f'results/{data}-moe-lr={lr}-bs={batch_size}.txt'
 
     if shared_model != 'bert-base':
         file_name = file_name[:-4] + f'-{shared_model}.txt'
