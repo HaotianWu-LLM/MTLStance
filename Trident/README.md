@@ -5,7 +5,9 @@ Part of this code is referenced at [here](https://github.com/zihaohe123/wiki-enh
 1. In this word, we experiment on one ZSSD/FSSD dataset- <em>VAST<em>, which can be is publicly available at [here](https://github.com/emilyallaway/zero-shot-stance/tree/master/data/VAST)
 2. "wiki_dict.pkl" and "google_dict.pkl" are two offline documents that we use to retrieve background knowledge towards "Targets", if you want to use it in your own dataset, you need to update these two document with the "Target" in your dataset.
 ## Installation
-Install [Pytorch](https://pytorch.org/get-started/locally/) and [Huggingface Transformers](https://huggingface.co/docs/transformers/installation).
+```
+pip install -r requirements.txt
+```
 ## Some Kindly Suggestions
 1. Multi-task Learning is usually difficult to converge to an optimal point. Therefore, suitable weights for different task are important. The "Target Prediction" is a difficult task (Because there are a large number of classes), thus we suggest to set its loss weight to lower than <em>1e-3<em>.
 2. [here](https://github.com/median-research-group/LibMTL) is a easy-to-use library, which contain many loss-balance and gradient-balance method, which may help to improve the MTL performence. CAGrad often works better in my past MTL experience. 
@@ -18,3 +20,8 @@ VAST, zero/few-shot stance detection
 ```angular2html
 python run_vast.py
 ```
+## Some Important Ablation Studies (Sort by priority)
+(1) The selection of the number of experts (from 1 to 4) 
+(2) Remove the google branch, wiki branch and tweet branch, respectively.
+(3) Set the weight of "loss_target", "loss_individual", "loss_margin" to 0, respectively.
+(4) Important Note: Set the patience to 2 is enough.
