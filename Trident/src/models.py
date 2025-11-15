@@ -91,7 +91,7 @@ class MoELayer(nn.Module):
 
 
 class BERTSeqClf(nn.Module):
-    def __init__(self, num_labels, num_target_labels, n_layers_freeze=0, n_layers_freeze_wiki=0):
+    def __init__(self, num_labels, num_target_labels, n_layers_freeze=0, n_layers_freeze_wiki=0, moe_top_k=2):
         super(BERTSeqClf, self).__init__()
 
         os.environ['TRANSFORMERS_OFFLINE'] = '1'
@@ -121,16 +121,16 @@ class BERTSeqClf(nn.Module):
                     i))
 
         # MoE Group 1: Knowledge Integration (Wiki + Google background knowledge)
-        self.knowledge_moe_1 = MoELayer(hidden_size, num_experts=8, top_k=2)
-        self.knowledge_moe_2 = MoELayer(hidden_size, num_experts=8, top_k=2)
+        self.knowledge_moe_1 = MoELayer(hidden_size, num_experts=8, top_k=moe_top_k)
+        self.knowledge_moe_2 = MoELayer(hidden_size, num_experts=8, top_k=moe_top_k)
 
         # MoE Group 2: Tweet Knowledge Integration
-        self.tweet_moe_1 = MoELayer(hidden_size, num_experts=6, top_k=2)
-        self.tweet_moe_2 = MoELayer(hidden_size, num_experts=6, top_k=2)
+        self.tweet_moe_1 = MoELayer(hidden_size, num_experts=6, top_k=moe_top_k)
+        self.tweet_moe_2 = MoELayer(hidden_size, num_experts=6, top_k=moe_top_k)
 
         # MoE Group 3: Multi-source Fusion (Shared branch)
-        self.fusion_moe_1 = MoELayer(hidden_size, num_experts=10, top_k=2)
-        self.fusion_moe_2 = MoELayer(hidden_size, num_experts=10, top_k=2)
+        self.fusion_moe_1 = MoELayer(hidden_size, num_experts=10, top_k=moe_top_k)
+        self.fusion_moe_2 = MoELayer(hidden_size, num_experts=10, top_k=moe_top_k)
 
         self.classifier = nn.Linear(config.hidden_size, num_labels)
         self.feed = nn.Linear(num_labels, 1)

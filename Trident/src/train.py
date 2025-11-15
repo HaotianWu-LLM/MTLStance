@@ -23,7 +23,7 @@ if __name__ == '__main__':
     parser.add_argument('--inference', type=int, default=0, help='if doing inference or not')
 
     parser.add_argument('--seed', type=int, default=42)
-
+    parser.add_argument('--moe_top_k', type=int, default=2,)
     args = parser.parse_args()
     print(args)
 

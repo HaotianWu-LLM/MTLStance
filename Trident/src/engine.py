@@ -53,9 +53,9 @@ class Engine:
         num_target_labels = 6054
         model = BERTSeqClf(num_labels=num_labels, num_target_labels=num_target_labels,
                            n_layers_freeze=args.n_layers_freeze,
-                           n_layers_freeze_wiki=args.n_layers_freeze_wiki)
+                           n_layers_freeze_wiki=args.n_layers_freeze_wiki,
+                           moe_top_k=args.moe_top_k)
         model = nn.DataParallel(model)
-
         model.to(device)
 
         optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.l2_reg)
@@ -101,9 +101,9 @@ class Engine:
             print('Saving the best checkpoint....')
             self.model.load_state_dict(best_state_dict)
             if self.args.data != 'vast':
-                model_name = f"ckp/model_{self.args.data}.pt"
+                model_name = f"ckp/model_{self.args.data}_moe_k_{self.args.moe_top_k}.pt"
             else:
-                model_name = f"ckp/model_{self.args.data}_.pt"
+                model_name = f"ckp/model_{self.args.data}_moe_k_{self.args.moe_top_k}.pt"
             torch.save(best_state_dict, model_name)
 
         print('Inference...')
