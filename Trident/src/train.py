@@ -24,6 +24,9 @@ if __name__ == '__main__':
 
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument('--moe_top_k', type=int, default=2,)
+    parser.add_argument('--enable_wiki', type=int, default=1,)
+    parser.add_argument('--enable_google', type=int, default=1,)
+    parser.add_argument('--enable_tweet', type=int, default=1,)
     args = parser.parse_args()
     print(args)
 
