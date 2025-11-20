@@ -20,8 +20,5 @@ VAST, zero/few-shot stance detection
 ```angular2html
 python run_vast.py
 ```
-## Some Important Ablation Studies (Sort by priority)
-(1) The selection of the number of experts (from 1 to 4) \
-(2) Remove the google branch, wiki branch and tweet branch, respectively.\
-(3) Set the weight of "loss_target", "loss_individual", "loss_margin" to 0, respectively.\
-(4) Important Note: Set the patience to 2 is enough.
+## Traded Model Access
+The trained model is available [here](https://drive.google.com/file/d/1MWqt9v1rBAudRzvqfSZpg_VjAUl6xrjW/view?usp=drive_link).
