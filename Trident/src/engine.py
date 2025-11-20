@@ -1,3 +1,5 @@
+import random
+
 import torch
 import torch.nn as nn
 import os
@@ -15,9 +17,16 @@ class Engine:
 
         os.makedirs('ckp', exist_ok=True)
 
+        random.seed(args.seed)
         torch.manual_seed(args.seed)
         torch.cuda.manual_seed(args.seed)
         np.random.seed(args.seed)
+
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+
+        os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+        torch.use_deterministic_algorithms(True)
 
         print('Preparing data....')
 
@@ -53,9 +62,12 @@ class Engine:
         num_target_labels = 6054
         model = BERTSeqClf(num_labels=num_labels, num_target_labels=num_target_labels,
                            n_layers_freeze=args.n_layers_freeze,
-                           n_layers_freeze_wiki=args.n_layers_freeze_wiki)
+                           n_layers_freeze_wiki=args.n_layers_freeze_wiki,
+                           moe_top_k=args.moe_top_k,
+                           enable_wiki=args.enable_wiki,
+                           enable_google=args.enable_google,
+                           enable_tweet=args.enable_tweet,)
         model = nn.DataParallel(model)
-
         model.to(device)
 
         optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.l2_reg)
@@ -75,6 +87,9 @@ class Engine:
         self.criterion_1 = criterion_1
         self.criterion_2 = criterion_2
         self.args = args
+        self.w_loss_target = getattr(args, "w_loss_target", 0.0001)
+        self.w_loss_individual = getattr(args, "w_loss_individual", 0.0001)
+        self.w_loss_margin = getattr(args, "w_loss_margin", 0.001)
 
     def train(self):
         if self.args.inference == 0:
@@ -100,10 +115,7 @@ class Engine:
 
             print('Saving the best checkpoint....')
             self.model.load_state_dict(best_state_dict)
-            if self.args.data != 'vast':
-                model_name = f"ckp/model_{self.args.data}.pt"
-            else:
-                model_name = f"ckp/model_{self.args.data}_.pt"
+            model_name = f"ckp/model_{self.args.data}_moe_k_{self.args.moe_top_k}_wiki{self.args.enable_wiki}_goog{self.args.enable_google}_tweet{self.args.enable_tweet}_w_loss_target{self.w_loss_target}_w_loss_individual{self.w_loss_individual}_w_loss_margin{self.w_loss_margin}.pt"
             torch.save(best_state_dict, model_name)
 
         print('Inference...')
@@ -163,7 +175,7 @@ class Engine:
                                                                 torch.zeros(y_individual.shape).to(self.device)))
             # loss = 0.0001 * loss_target + loss_shared + 0.0001 * loss_auxiliary
             # 有可能是loss_first前面的参数是0.001，然后loss_margin也是0.001
-            loss = 0.0001 * loss_first + 0.0001 * loss_target + 0.0001 * loss_individual + loss_shared + 0.0001 * loss_auxiliary + 0.001 * loss_margin
+            loss = 0.0001 * loss_first + self.w_loss_target * loss_target + self.w_loss_individual * loss_individual + loss_shared + 0.0001 * loss_auxiliary + self.w_loss_margin * loss_margin
             # loss = loss_shared + 0.0001 * loss_target + 0.0001 * loss_auxiliary
             loss.backward()
             self.optimizer.step()

@@ -5,7 +5,7 @@ if __name__ == '__main__':
     data = 'vast'
     batch_size = 4  # Keep small for MoE memory efficiency
     epochs = 50
-    patience = 10
+    patience = 2
     lr = 1e-5  # Lower lr for MoE stability
     l2_reg = 1e-4  # Increased regularization for MoE
     shared_model = 'bert-base'
@@ -16,6 +16,7 @@ if __name__ == '__main__':
     n_layers_freeze_wiki = 0
     gpu = '1'
     inference = 0
+    moe_top_k = 2
 
     if wiki_model == shared_model:
         n_layers_freeze_wiki = n_layers_freeze
@@ -55,6 +56,7 @@ if __name__ == '__main__':
               f"--l2_reg={l2_reg} " \
               f"--gpu={gpu} " \
               f"--inference={inference} " \
+              f"--moe_top_k={moe_top_k}"
               # f" > {file_name}"
 
     print(command)

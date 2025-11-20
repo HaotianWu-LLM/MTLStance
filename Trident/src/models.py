@@ -91,28 +91,53 @@ class MoELayer(nn.Module):
 
 
 class BERTSeqClf(nn.Module):
-    def __init__(self, num_labels, num_target_labels, n_layers_freeze=0, n_layers_freeze_wiki=0):
+    def __init__(
+            self,
+            num_labels,
+            num_target_labels,
+            n_layers_freeze=0,
+            n_layers_freeze_wiki=0,
+            moe_top_k=2,
+            enable_wiki=True,
+            enable_google=True,
+            enable_tweet=True,
+    ):
         super(BERTSeqClf, self).__init__()
 
         os.environ['TRANSFORMERS_OFFLINE'] = '1'
         from transformers import AutoModel
 
+        # ===== Flags for ablation =====
+        self.enable_wiki = enable_wiki
+        self.enable_google = enable_google
+        self.enable_tweet = enable_tweet
+
+        # Shared BERT (always used)
         self.bert_shared = AutoModel.from_pretrained('bert-base-uncased')
-        self.bert_wiki = AutoModel.from_pretrained('bert-base-uncased')
-        self.bert_google = AutoModel.from_pretrained('bert-base-uncased')
-        self.bert_tweet = AutoModel.from_pretrained('bert-base-uncased')
-
         config = self.bert_shared.config
-        config_wiki = self.bert_wiki.config
-        config_tweet = self.bert_tweet.config
-        config_google = self.bert_google.config
-
         hidden_size = config.hidden_size
 
+        # Optional BERTs for external knowledge
+        if self.enable_wiki:
+            self.bert_wiki = AutoModel.from_pretrained('bert-base-uncased')
+        else:
+            self.bert_wiki = None
+
+        if self.enable_google:
+            self.bert_google = AutoModel.from_pretrained('bert-base-uncased')
+        else:
+            self.bert_google = None
+
+        if self.enable_tweet:
+            self.bert_tweet = AutoModel.from_pretrained('bert-base-uncased')
+        else:
+            self.bert_tweet = None
+
+        # Dropouts
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
-        self.dropout_wiki = nn.Dropout(config_wiki.hidden_dropout_prob)
-        self.dropout_tweet = nn.Dropout(config_tweet.hidden_dropout_prob)
-        self.dropout_google = nn.Dropout(config_google.hidden_dropout_prob)
+        self.dropout_wiki = nn.Dropout(config.hidden_dropout_prob)
+        self.dropout_tweet = nn.Dropout(config.hidden_dropout_prob)
+        self.dropout_google = nn.Dropout(config.hidden_dropout_prob)
 
         # Original transformer encoder layers
         for i in range(20):
@@ -121,100 +146,141 @@ class BERTSeqClf(nn.Module):
                     i))
 
         # MoE Group 1: Knowledge Integration (Wiki + Google background knowledge)
-        self.knowledge_moe_1 = MoELayer(hidden_size, num_experts=8, top_k=2)
-        self.knowledge_moe_2 = MoELayer(hidden_size, num_experts=8, top_k=2)
+        self.knowledge_moe_1 = MoELayer(hidden_size, num_experts=8, top_k=moe_top_k)
+        self.knowledge_moe_2 = MoELayer(hidden_size, num_experts=8, top_k=moe_top_k)
 
         # MoE Group 2: Tweet Knowledge Integration
-        self.tweet_moe_1 = MoELayer(hidden_size, num_experts=6, top_k=2)
-        self.tweet_moe_2 = MoELayer(hidden_size, num_experts=6, top_k=2)
+        self.tweet_moe_1 = MoELayer(hidden_size, num_experts=6, top_k=moe_top_k)
+        self.tweet_moe_2 = MoELayer(hidden_size, num_experts=6, top_k=moe_top_k)
 
         # MoE Group 3: Multi-source Fusion (Shared branch)
-        self.fusion_moe_1 = MoELayer(hidden_size, num_experts=10, top_k=2)
-        self.fusion_moe_2 = MoELayer(hidden_size, num_experts=10, top_k=2)
+        self.fusion_moe_1 = MoELayer(hidden_size, num_experts=10, top_k=moe_top_k)
+        self.fusion_moe_2 = MoELayer(hidden_size, num_experts=10, top_k=moe_top_k)
 
-        self.classifier = nn.Linear(config.hidden_size, num_labels)
+        # Heads – use shared hidden_size so they still work even if wiki/tweet are disabled
+        self.classifier = nn.Linear(hidden_size, num_labels)
         self.feed = nn.Linear(num_labels, 1)
-        self.target_classifier = nn.Linear(config_wiki.hidden_size, num_target_labels)
-        self.auxiliary_classifier = nn.Linear(config_tweet.hidden_size, num_labels)
+        self.target_classifier = nn.Linear(hidden_size, num_target_labels)
+        self.auxiliary_classifier = nn.Linear(hidden_size, num_labels)
 
-    def forward(self, input_ids_shared=None, attention_mask_shared=None, token_type_ids_shared=None,
-                input_ids_wiki=None, attention_mask_wiki=None, input_ids_google=None, attention_mask_google=None,
-                input_ids_tweet=None, attention_mask_tweet=None, token_type_ids_tweet=None):
-        # Encode all inputs
-        outputs = self.bert_shared(input_ids=input_ids_shared,
-                                   attention_mask=attention_mask_shared,
-                                   token_type_ids=token_type_ids_shared,
-                                   return_dict=True)
-
-        pooled_ouptut_shared = outputs.pooler_output
+    def forward(
+        self,
+        input_ids_shared=None,
+        attention_mask_shared=None,
+        token_type_ids_shared=None,
+        input_ids_wiki=None,
+        attention_mask_wiki=None,
+        input_ids_google=None,
+        attention_mask_google=None,
+        input_ids_tweet=None,
+        attention_mask_tweet=None,
+        token_type_ids_tweet=None,
+    ):
+        # ===== Shared encoder (always on) =====
+        outputs = self.bert_shared(
+            input_ids=input_ids_shared,
+            attention_mask=attention_mask_shared,
+            token_type_ids=token_type_ids_shared,
+            return_dict=True,
+        )
+        pooled_ouptut_shared = outputs.pooler_output              # [B, H]
         pooled_ouptut_shared = self.dropout(pooled_ouptut_shared)
-        pooled_ouptut_shared = torch.unsqueeze(pooled_ouptut_shared, 1)
+        pooled_ouptut_shared = torch.unsqueeze(pooled_ouptut_shared, 1)  # [B, 1, H]
 
-        outputs_wiki = self.bert_wiki(input_ids=input_ids_wiki,
-                                      attention_mask=attention_mask_wiki,
-                                      return_dict=True)
+        B, _, H = pooled_ouptut_shared.shape
 
-        pooled_output_wiki = outputs_wiki.pooler_output
-        pooled_output_wiki = self.dropout_wiki(pooled_output_wiki)
-        pooled_output_wiki = torch.unsqueeze(pooled_output_wiki, 1)
+        # Helper for zero placeholders
+        def zeros_like_shared():
+            return torch.zeros_like(pooled_ouptut_shared)
 
-        outputs_google = self.bert_google(input_ids=input_ids_google,
-                                          attention_mask=attention_mask_google,
-                                          return_dict=True)
+        # ===== Wiki branch =====
+        if self.enable_wiki and self.bert_wiki is not None and input_ids_wiki is not None:
+            outputs_wiki = self.bert_wiki(
+                input_ids=input_ids_wiki,
+                attention_mask=attention_mask_wiki,
+                return_dict=True,
+            )
+            pooled_output_wiki = outputs_wiki.pooler_output
+            pooled_output_wiki = self.dropout_wiki(pooled_output_wiki)
+            pooled_output_wiki = torch.unsqueeze(pooled_output_wiki, 1)
+        else:
+            pooled_output_wiki = zeros_like_shared()
 
-        pooled_output_google = outputs_google.pooler_output
-        pooled_output_google = self.dropout_google(pooled_output_google)
-        pooled_output_google = torch.unsqueeze(pooled_output_google, 1)
+        # ===== Google branch =====
+        if self.enable_google and self.bert_google is not None and input_ids_google is not None:
+            outputs_google = self.bert_google(
+                input_ids=input_ids_google,
+                attention_mask=attention_mask_google,
+                return_dict=True,
+            )
+            pooled_output_google = outputs_google.pooler_output
+            pooled_output_google = self.dropout_google(pooled_output_google)
+            pooled_output_google = torch.unsqueeze(pooled_output_google, 1)
+        else:
+            pooled_output_google = zeros_like_shared()
 
-        outputs_tweet = self.bert_tweet(input_ids=input_ids_tweet,
-                                        attention_mask=attention_mask_tweet,
-                                        token_type_ids=token_type_ids_tweet,
-                                        return_dict=True)
-
-        pooled_output_tweet = outputs_tweet.pooler_output
-        pooled_output_tweet = self.dropout_tweet(pooled_output_tweet)
-        pooled_output_tweet = torch.unsqueeze(pooled_output_tweet, 1)
+        # ===== Tweet branch =====
+        if self.enable_tweet and self.bert_tweet is not None and input_ids_tweet is not None:
+            outputs_tweet = self.bert_tweet(
+                input_ids=input_ids_tweet,
+                attention_mask=attention_mask_tweet,
+                token_type_ids=token_type_ids_tweet,
+                return_dict=True,
+            )
+            pooled_output_tweet = outputs_tweet.pooler_output
+            pooled_output_tweet = self.dropout_tweet(pooled_output_tweet)
+            pooled_output_tweet = torch.unsqueeze(pooled_output_tweet, 1)
+        else:
+            pooled_output_tweet = zeros_like_shared()
 
         # ===== MoE Group 1: Knowledge Integration (Google + Wiki) =====
-        # First stage: integrate raw background knowledge
-        knowledge_concat = torch.concat([pooled_output_google, pooled_output_wiki], dim=1)
+        knowledge_concat = torch.concat(
+            [pooled_output_google, pooled_output_wiki], dim=1
+        )  # [B, 2, H]
         knowledge_moe_out = self.knowledge_moe_1(knowledge_concat)
-
         local_shared_1 = self.encoder17(self.encoder16(knowledge_moe_out))
-
-        # Second stage: refine with MoE
         local_shared_1 = self.knowledge_moe_2(local_shared_1)
 
-        first1 = self.encoder13(self.encoder12(torch.concat([pooled_output_google, local_shared_1], dim=1)))
-        left1 = self.encoder1(self.encoder0(torch.concat([pooled_output_wiki, local_shared_1], dim=1)))
+        first1 = self.encoder13(
+            self.encoder12(torch.concat([pooled_output_google, local_shared_1], dim=1))
+        )
+        left1 = self.encoder1(
+            self.encoder0(torch.concat([pooled_output_wiki, local_shared_1], dim=1))
+        )
 
         # ===== MoE Group 2: Tweet Knowledge Integration =====
-        # First stage: integrate tweet with context
-        tweet_concat = torch.concat([pooled_ouptut_shared, pooled_output_tweet], dim=1)
+        tweet_concat = torch.concat(
+            [pooled_ouptut_shared, pooled_output_tweet], dim=1
+        )  # [B, 2, H]
         tweet_moe_out = self.tweet_moe_1(tweet_concat)
-
         right1 = self.encoder5(self.encoder4(tweet_moe_out))
-
-        # Second stage: refine tweet knowledge
         right1 = self.tweet_moe_2(right1)
 
         # ===== MoE Group 3: Multi-source Fusion (Shared Branch) =====
-        # First stage: integrate all knowledge sources
-        fusion_concat = torch.concat([pooled_output_google, pooled_output_wiki,
-                                      pooled_ouptut_shared, pooled_output_tweet], dim=1)
+        fusion_concat = torch.concat(
+            [pooled_output_google, pooled_output_wiki, pooled_ouptut_shared, pooled_output_tweet],
+            dim=1,
+        )  # [B, 4, H]
         fusion_moe_out = self.fusion_moe_1(fusion_concat)
 
         medium1 = self.encoder3(self.encoder2(fusion_moe_out))
         medium_individual_1 = self.encoder3(self.encoder2(pooled_ouptut_shared))
 
         # Second stage processing
-        local_shared_2 = self.encoder19(self.encoder18(torch.concat([first1, left1], dim=1)))
+        local_shared_2 = self.encoder19(
+            self.encoder18(torch.concat([first1, left1], dim=1))
+        )
 
-        first2 = self.encoder15(self.encoder14(torch.concat([first1, local_shared_2], dim=1)))
-        left2 = self.encoder7(self.encoder6(torch.concat([left1, local_shared_2], dim=1)))
+        first2 = self.encoder15(
+            self.encoder14(torch.concat([first1, local_shared_2], dim=1))
+        )
+        left2 = self.encoder7(
+            self.encoder6(torch.concat([left1, local_shared_2], dim=1))
+        )
 
-        # Second stage fusion: refine integrated knowledge with MoE
-        medium_fusion_concat = torch.concat([first1, left1, medium1, right1], dim=1)
+        medium_fusion_concat = torch.concat(
+            [first1, left1, medium1, right1], dim=1
+        )
         medium_fusion_out = self.fusion_moe_2(medium_fusion_concat)
 
         medium2 = self.encoder9(self.encoder8(medium_fusion_out))
@@ -237,4 +303,12 @@ class BERTSeqClf(nn.Module):
         y_individual = torch.sigmoid(self.feed(logits_individual))
         logits_auxiliary = self.auxiliary_classifier(right2)
 
-        return logits_first, logits_target, logits, y_pred, logits_individual, y_individual, logits_auxiliary
+        return (
+            logits_first,
+            logits_target,
+            logits,
+            y_pred,
+            logits_individual,
+            y_individual,
+            logits_auxiliary,
+        )

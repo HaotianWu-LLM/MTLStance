@@ -23,6 +23,13 @@ if __name__ == '__main__':
     parser.add_argument('--inference', type=int, default=0, help='if doing inference or not')
 
     parser.add_argument('--seed', type=int, default=42)
+    parser.add_argument('--moe_top_k', type=int, default=2,)
+    parser.add_argument('--enable_wiki', type=int, default=1,)
+    parser.add_argument('--enable_google', type=int, default=1,)
+    parser.add_argument('--enable_tweet', type=int, default=1,)
+    parser.add_argument('--w_loss_target', type=float, default=0.0001)
+    parser.add_argument('--w_loss_individual', type=float, default=0.0001)
+    parser.add_argument('--w_loss_margin', type=float, default=0.001)
 
     args = parser.parse_args()
     print(args)
