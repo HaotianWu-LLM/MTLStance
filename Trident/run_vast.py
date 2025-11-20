@@ -16,7 +16,7 @@ if __name__ == '__main__':
     n_layers_freeze_wiki = 0
     gpu = '1'
     inference = 0
-    moe_top_k = 1
+    moe_top_k = 2
 
     if wiki_model == shared_model:
         n_layers_freeze_wiki = n_layers_freeze
